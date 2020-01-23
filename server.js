@@ -13,113 +13,100 @@ const connection = knex({
     }
 });
 
-connection.select('*').from('users').then(data => console.log(data));
+// connection.select('*').from('users').then(data => console.log(data));
 
 const app = express();
-
-const database = {
-    users: [
-        {
-            id: 1,
-            name: 'Sebastian',
-            email: 'sebas@gmail.com',
-            password: 'sebas123',
-            entries: 10,
-            joinDate: new Date()
-        },
-        {
-            id: 2,
-            name: 'Hector',
-            email: 'hector@gmail.com',
-            password: 'hector123',
-            entries: 5,
-            joinDate: new Date()
-        }
-    ],
-    login: [
-        {
-            id: 1000,
-            email: 'sebas@gmail.com',
-            password: '$2a$10$Uf7VrVwfaec6fhOURJvM8Oq8Su5vqxfUfErOmC9NbZym/7t9C6qo2' //sebas123
-        },
-        {
-            id: 1001,
-            email: 'hector@gmail.com',
-            password: '$2a$10$/SkvXHddEAALuRrtKBkt2OsuCggodQflzuFCJUf2sa2dF9Fr2y9lm' // hector123
-        }
-    ]
-};
 
 app.use(express.json());
 app.use(cors());
 
 app.get('/', (req, res) => {
-    res.json(database.users);
+    res.json('home');
 });
 
 app.post('/register', (req, res) => {
-    let { name, email, password, hashPW } = req.body;
+    let { name, email, password } = req.body;
 
     bcrypt.hash(password, null, null, function(err, hash) {
-        hashPW = hash;
+        connection('userlogin')
+        .returning('id')
+        .insert({
+            email: email,
+            hash: hash
+        })
+        .then(response => console.log(response[0]))
+        .catch(err => {
+            res.status(400).json('Unable to register the user');
+            return;
+        });
+
+        connection('users')
+        .returning('*')
+        .insert({
+            name: name, 
+            email: email, 
+            joindate: new Date()
+        })
+        .then(response => {
+            if (response.length) {
+                res.json(response[0]);
+            }
+        })
+        .catch(error => res.status(400).json('Unable to register the user'));
     });
-
-    console.log('hash: ', hashPW);
-
-    connection('users')
-    .returning('*')
-    .insert({
-        name: name, 
-        email: email, 
-        joindate: new Date()
-    })
-    .then(response => {
-        if (response) {
-            res.json(response[0]);
-        }
-    })
-    .catch(error => res.status(400).json('Unable to register the user'));
-
-    // database.users.push({
-    //     id: 3,
-    //     name: name,
-    //     email: email,
-    //     password: password,
-    //     entries: 0,
-    //     joinDate: new Date()
-    // });
-    // res.json(database.users[database.users.length - 1]);
 });
 
 app.post('/signin', (req, res) => {
-    if (req.body.email === database.users[0].email &&
-        req.body.password === database.users[0].password) 
-    {
-        res.json(database.users[0]);
-    } else {
-        res.status(400).json('invalid signin');
-    }
+    let { email, password } = req.body;
+
+    connection.select('*').from('userlogin').where({ email: email })
+    .then(response => {
+        if (response.length) {
+            bcrypt.compare(password, response[0].hash, function(err, comp) {
+                if (comp) {
+                    connection.select('*').from('users').where({ email: email })
+                    .then(response => {
+                        if (response.length) {
+                            res.json(response[0]);
+                        } else {
+                            res.status(400).json('User not found');
+                        }
+                    })
+                    .catch(err => res.status(400).json('error getting the user'));
+                } else {
+                    res.status(400).json('invalid signin');
+                }
+            });
+        } else {
+            res.status(400).json('invalid signin');
+        }
+    })
 });
 
 app.get('/profile/:id', (req, res) => {
     let { id } = req.params;
-    let user = database.users.find(tmpUser => tmpUser.id == id);
-    if (user !== undefined) {
-        res.json(user);
-    } else {
-        res.status(400).json('User not found');
-    }
+    connection.select('*').from('users').where({ id: id })
+    .then(response => {
+        if (response.length) {
+            res.json(response[0]);
+        } else {
+            res.status(400).json('User not found');
+        }
+    })
+    .catch(erro => res.status(400).json('error getting the user'));
 });
 
 app.put('/image', (req, res) => {
     let { id } = req.body;
-    let user = database.users.find(tmpUser => tmpUser.id == id);
-    if (user !== undefined) {
-        user.entries++;
-        res.json(user.entries);
-    } else {
-        res.status(400).json('User not found');
-    }
+    connection('users').returning('entries').where({ id: id }).increment('entries', 1)
+    .then(response => {
+        if (response.length) {
+            res.json(response[0]);            
+        } else {
+            res.status(400).json('User not found');
+        }
+    })
+    .catch(err => res.status(400).json('error updating the user'));
 });
 
 app.listen(3001, () => {

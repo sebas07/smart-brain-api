@@ -13,8 +13,6 @@ const connection = knex({
     }
 });
 
-// connection.select('*').from('users').then(data => console.log(data));
-
 const app = express();
 
 app.use(express.json());
@@ -26,61 +24,61 @@ app.get('/', (req, res) => {
 
 app.post('/register', (req, res) => {
     let { name, email, password } = req.body;
+    let passwordHash = bcrypt.hashSync(password);
 
-    bcrypt.hash(password, null, null, function(err, hash) {
-        connection('userlogin')
-        .returning('id')
+    connection.transaction(trx => {
+        trx('userlogin')
         .insert({
             email: email,
-            hash: hash
+            hash: passwordHash
         })
-        .then(response => console.log(response[0]))
-        .catch(err => {
-            res.status(400).json('Unable to register the user');
-            return;
-        });
-
-        connection('users')
-        .returning('*')
-        .insert({
-            name: name, 
-            email: email, 
-            joindate: new Date()
-        })
-        .then(response => {
-            if (response.length) {
-                res.json(response[0]);
+        .returning('email')
+        .then(loginEmail => {
+            if (loginEmail.length) {
+                return trx('users')
+                .returning('*')
+                .insert({
+                    name: name, 
+                    email: loginEmail[0], 
+                    joindate: new Date()
+                })
+                .then(response => {
+                    if (response.length) {
+                        res.json(response[0]);
+                    }
+                })
             }
         })
-        .catch(error => res.status(400).json('Unable to register the user'));
-    });
+        .then(trx.commit)
+        .catch(trx.rollback)
+    })
+    .catch(err => res.status(400).json('Unable to register the user'));
 });
 
 app.post('/signin', (req, res) => {
     let { email, password } = req.body;
-
-    connection.select('*').from('userlogin').where({ email: email })
-    .then(response => {
-        if (response.length) {
-            bcrypt.compare(password, response[0].hash, function(err, comp) {
-                if (comp) {
-                    connection.select('*').from('users').where({ email: email })
-                    .then(response => {
-                        if (response.length) {
-                            res.json(response[0]);
-                        } else {
-                            res.status(400).json('User not found');
-                        }
-                    })
-                    .catch(err => res.status(400).json('error getting the user'));
-                } else {
-                    res.status(400).json('invalid signin');
-                }
-            });
+    connection.select('email', 'hash').from('userlogin').where({ email: email })
+    .then(data => {
+        if (data.length) {
+            const isValid = bcrypt.compareSync(password, data[0].hash);
+            if (isValid) {
+                return connection.select('*').from('users').where({ email: email })
+                .then(user => {
+                    if (user.length) {
+                        res.json(user[0]);
+                    } else {
+                        res.status(400).json('User not found');
+                    }
+                })
+                .catch(err => res.status(400).json('error getting the user'));
+            } else {
+                res.status(400).json('invalid signin');
+            }
         } else {
             res.status(400).json('invalid signin');
         }
     })
+    .catch(err => res.status(400).json('invalid signin'));
 });
 
 app.get('/profile/:id', (req, res) => {

@@ -27,6 +27,8 @@ app.get('/', (req, res) => { res.json('home') });
 
 app.put('/image', (req, res) => { userUpdate.handleUserUpdate(req, res, connection) });
 
+app.post('/imageurl', (req, res) => { userUpdate.handleClarifaiApiCall(req, res) });
+
 app.get('/profile/:id', (req, res) => { userProfile.handleUserProfile(req, res, connection) });
 
 app.post('/register', (req, res) => { register.handleRegister(req, res, bcrypt, connection) });
